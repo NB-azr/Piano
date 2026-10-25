@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Web Piano · 网页钢琴</title>
+<link rel="stylesheet" href="css/style.css?v=202610309">
+<script>
+/* Early audio unlock: any first user gesture resumes AudioContext */
+(function(){
+  var ctx = null;
+  function getCtx(){
+    if (!ctx) {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) ctx = new AC();
+    }
+    return ctx;
+  }
+  function unlock(){
+    var c = getCtx();
+    if (!c) return;
+    if (c.state !== 'running') { try { c.resume(); } catch(e){} }
+    // 播放一个静音 buffer 强制解锁
+    try {
+      var b = c.createBuffer(1,1,22050), s = c.createBufferSource();
+      s.buffer = b; s.connect(c.destination); s.start(0);
+    } catch(e){}
+  }
+  ['pointerdown','touchstart','mousedown','keydown'].forEach(function(evt){
+    document.addEventListener(evt, unlock, true);
+  });
+})();
+</script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="2" y="4" width="20" height="16" rx="2" stroke="#4da3ff" stroke-width="1.6"/><path d="M7 4v10M12 4v10M17 4v10" stroke="#4da3ff" stroke-width="1.6"/><path d="M9 4v6M14 4v6M19 4v6" stroke="#8b97a8" stroke-width="1.4"/></svg></span>
+    <span class="title">Web Piano</span>
+  </div>
+
+  <div id="scorePanel" class="score-panel">
+    <div class="score-item"><span class="score-label">得分</span><strong id="curScore">0</strong></div>
+    
+    <div class="score-item"><span class="score-label">最高分</span><strong id="bestScore">0</strong></div>
+    <div class="score-item"><span class="score-label">满分</span><strong id="maxScore">0</strong></div>
+  </div>
+  <div class="controls">
+    <label class="ctrl">
+      <span>音色</span>
+      <select id="timbre">
+        <option value="piano">钢琴</option>
+        <option value="organ">风琴</option>
+        <option value="synth">电子琴</option>
+      </select>
+    </label>
+
+    <label class="ctrl">
+      <span>音量</span>
+      <input id="volume" type="range" min="0" max="100" value="70">
+    </label>
+
+    <label class="ctrl">
+      <span>移调</span>
+      <input id="transpose" type="range" min="-24" max="24" step="1" value="0">
+      <em id="transposeVal">0</em>
+    </label>
+
+    <label class="ctrl">
+      <span>倍数</span>
+      <select id="speedSel">
+        <option value="0.5">0.5x</option>
+        <option value="0.75">0.75x</option>
+        <option value="1" selected>1.0x</option>
+        <option value="1.25">1.25x</option>
+        <option value="1.5">1.5x</option>
+        <option value="1.75">1.75x</option>
+        <option value="2">2.0x</option>
+      </select>
+    </label>
+
+    <label class="ctrl checkbox">
+      <input id="showNote" type="checkbox" checked>
+      <span>显示音名</span>
+    </label>
+
+    <div class="ctrl group">
+      <label class="ctrl">
+        <span>曲目</span>
+        <select id="songSel">
+          <option value="">-- 选择曲目 --</option>
+        </select>
+      </label>
+
+      <button id="demoBtn" class="btn demo">&#9654; 听示例</button>
+      <button id="practiceBtn" class="btn">&#9654; 练习</button>
+      <button id="practiceStopBtn" class="btn" disabled>&#9632; 退出</button>
+    </div>
+    <div class="ctrl group">
+      <button id="recBtn" class="btn rec">&#9679; 录音</button>
+      <button id="playBtn" class="btn" disabled>&#9654; 回放</button>
+      <button id="stopBtn" class="btn" disabled>&#9632; 停止</button>
+      <button id="clearBtn" class="btn ghost" disabled>清除</button>
+      <button id="rankBtn" class="btn ghost">&#127942; 排行</button>
+    </div>
+  </div>
+</header>
+
+<main class="stage">
+  <div class="keyboard-wrap">
+    <div id="lane" class="lane" aria-hidden="true">
+      <div id="judgeLine" class="judge-line"></div>
+      <div id="hitFx" class="hit-fx"></div>
+    </div>
+    <div id="piano" class="piano" aria-label="钢琴键盘"></div>
+  </div>
+  <div id="rankModal" class="result-modal" style="display:none">
+    <div class="result-card rank-card">
+      <h2>&#127942; 历史排行</h2>
+      <div id="rankList" class="rank-list"></div>
+      <div class="result-rank-line" id="resultRankLine"></div>
+      <div class="result-history">
+        <div class="result-history-title">本曲历史前 5</div>
+        <div id="resultHistory" class="result-history-list"></div>
+      </div>
+      <div class="result-rank-line" id="resultRankLine"></div>
+      <div class="result-history">
+        <div id="resultHistory" class="result-history-list"></div>
+      </div>
+      <div class="result-actions">
+        <button id="rankClose" class="btn ghost">关闭</button>
+      </div>
+    </div>
+  </div>
+  
+  <div id="resultModal" class="result-modal" style="display:none">
+    <div class="result-card">
+      <h2 id="resultTitle">练习完成</h2>
+      <div class="result-score"><span id="resultScore">0</span></div>
+      <div class="result-best">历史最高：<strong id="resultBest">0</strong></div>
+      <div class="result-stats">
+        <div><span>完美</span><strong id="resultPerfect">0</strong></div>
+        <div><span>良好</span><strong id="resultGood">0</strong></div>
+        <div><span>擦边</span><strong id="resultOk">0</strong></div>
+        <div><span>邻键</span><strong id="resultNear">0</strong></div>
+        <div><span>补按</span><strong id="resultRecover">0</strong></div>
+      </div>
+      <div class="result-actions">
+        <button id="resultRetry" class="btn">&#9654; 再来一次</button>
+        <button id="resultClose" class="btn ghost">关闭</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer class="hint">
+  <span>Keyboard: <kbd>A</kbd><kbd>W</kbd><kbd>S</kbd><kbd>E</kbd><kbd>D</kbd><kbd>F</kbd><kbd>T</kbd><kbd>G</kbd><kbd>Y</kbd><kbd>H</kbd><kbd>U</kbd><kbd>J</kbd><kbd>K</kbd></span>
+  <span>Left/Right: transpose · Up/Down: octave</span>
+  <span id="status" class="status">Ready</span>
+</footer>
+
+<script src="js/audio.js?v=202610309"></script>
+<script src="js/keyboard.js?v=202610309"></script>
+<script src="js/songs.js?v=202610309"></script>
+<script src="js/falling.js?v=202610309"></script>
+  <script src="js/demo.js?v=202610309"></script>
+<script src="js/recorder.js?v=202610309"></script>
+<script src="js/custom.js?v=202610309"></script>
+<script src="js/app.js?v=202610309"></script>
+</body>
+</html>
